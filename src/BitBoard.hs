@@ -109,11 +109,11 @@ knightSquares hard mask = complement hard .&. foldr1 (.|.)
 
 pawnSquares :: BoardMask -> BoardMask -> Side -> BoardMask -> BoardMask
 pawnSquares soft hard side mask = (captures .&. soft) .|. 
-                                  (advances .&!. extend (block .&!. extendR mask) .&!. block)
+                                  (advances .&!. extend (block .&!. extendR' mask) .&!. block)
     where
-        (shift, extend, extendR) = if side == White 
-                                       then (shiftL, extendN, extendS)
-                                       else (shiftR, extendS, extendN)
+        (shift, extend, extendR') = if side == White 
+                                       then (shiftL, extendN, extendS')
+                                       else (shiftR, extendS, extendN')
         baserank = mask .&. rank (if side == White then 1 else 6) /= 0
         advances = mask `shift` 8 .|. (if baserank then mask `shift` 16 else 0)
         captures = case side of 
@@ -137,21 +137,31 @@ extendSW = extendDiag shiftR diagSWNE [7,14..49]
 extendNW = extendDiag shiftL diagSENW [9,18..63]
 extendSE = extendDiag shiftR diagSENW [9,18..63]
 
+addOr f mask = f mask .|. mask
+extendN' = addOr extendN
+extendS' = addOr extendS
+extendW' = addOr extendW
+extendE' = addOr extendE
+extendNE' = addOr extendNE
+extendSW' = addOr extendSW
+extendNW' = addOr extendNW
+extendSE' = addOr extendSE
+
 orthogonalSquares :: BoardMask -> BoardMask -> BoardMask -> BoardMask
 orthogonalSquares soft hard mask = foldr1 (.|.)
-    [ extendW mask .&!. extendW (block .&!. extendE mask)
-    , extendE mask .&!. extendE (block .&!. extendW mask)
-    , extendN mask .&!. extendN (block .&!. extendS mask)
-    , extendS mask .&!. extendS (block .&!. extendN mask)
+    [ extendW mask .&!. extendW (block .&!. extendE' mask)
+    , extendE mask .&!. extendE (block .&!. extendW' mask)
+    , extendN mask .&!. extendN (block .&!. extendS' mask)
+    , extendS mask .&!. extendS (block .&!. extendN' mask)
     ] .&!. hard
     where block = soft .|. hard
 
 diagonalSquares :: BoardMask -> BoardMask -> BoardMask -> BoardMask
 diagonalSquares soft hard mask = foldr1 (.|.)
-    [ extendNW mask .&!. extendNW (block .&!. extendSE mask)
-    , extendSE mask .&!. extendSE (block .&!. extendNW mask)
-    , extendNE mask .&!. extendNE (block .&!. extendSW mask)
-    , extendSW mask .&!. extendSW (block .&!. extendNE mask)
+    [ extendNW mask .&!. extendNW (block .&!. extendSE' mask)
+    , extendSE mask .&!. extendSE (block .&!. extendNW' mask)
+    , extendNE mask .&!. extendNE (block .&!. extendSW' mask)
+    , extendSW mask .&!. extendSW (block .&!. extendNE' mask)
     ] .&!. hard
     where block = soft .|. hard
 
@@ -162,3 +172,60 @@ data Piece = Pawn | Rook | Knight | Bishop | Queen | King
 
 data Side = White | Black
     deriving (Eq)
+
+data Position = Position
+    { wPawns :: BoardMask
+    , bPawns :: BoardMask
+    , wRooks :: BoardMask
+    , bRooks :: BoardMask
+    , wKnights :: BoardMask
+    , bKnights :: BoardMask
+    , wBishops :: BoardMask
+    , bBishops :: BoardMask
+    , wQueens :: BoardMask
+    , bQueens :: BoardMask
+    , wKing :: BoardMask
+    , bKing :: BoardMask
+    , enPassant :: BoardMask
+    , castleMoved :: BoardMask
+    , toMove :: Side
+    }
+    deriving (Eq)
+
+pick f g p
+    | toMove p == White = f p
+    | otherwise = g p
+
+pick' = flip pick
+
+piecePickers = 
+    [ (wPawns, bPawns)
+    , (wRooks, bRooks)
+    , (wKnights, bKnights)
+    , (wBishops, bBishops)
+    , (wQueens, bQueens)
+    , (wKing, bKing)
+    ]
+
+myPickers@[myPawns, myRooks, myKnights, myBishops, myQueens, myKing] = map (uncurry pick) piecePickers
+opPickers@[opPawns, opRooks, opKnights, opBishops, opQueens, opKing] = map (uncurry pick') piecePickers
+myPieces p = foldr1 (.|.) $ map ($p) myPickers
+opPieces p = foldr1 (.|.) $ map ($p) opPickers
+
+startPosition = Position
+    { wPawns =      0x000000000000ff00
+    , bPawns =      0x00ff000000000000
+    , wRooks =      0x0000000000000081
+    , bRooks =      0x8100000000000000
+    , wKnights =    0x0000000000000042
+    , bKnights =    0x4200000000000000
+    , wBishops =    0x0000000000000024
+    , bBishops =    0x2400000000000000
+    , wQueens =     0x0000000000000010
+    , bQueens =     0x1000000000000000
+    , wKing =       0x0000000000000008
+    , bKing =       0x0800000000000000
+    , enPassant =   0
+    , castleMoved = 0x8900000000000089
+    , toMove = White
+    }
