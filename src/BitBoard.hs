@@ -63,7 +63,7 @@ newtype Square = Square Int
     deriving (Eq, Num, Ord, Enum)
 
 instance Show Square where
-    show (Square sq) = ("hgfedcba" !! (sq `mod` 8)) : ("12345678" !! (sq `div` 8)) : []
+    show (Square sq) = ["hgfedcba" !! (sq `mod` 8), "12345678" !! (sq `div` 8)]
 
 sqToMask :: Square -> BoardMask
 sqToMask (Square sq) = 0x01 `shiftL` sq
@@ -199,7 +199,7 @@ occVar fn sq i = foldl (.|.) 0 $ map ((0x1 `shiftL`) . (whichOnes (fn sq) !!)) (
 
 occVars :: (Square -> BoardMask) -> Square -> [BoardMask]
 occVars fn sq = map (occVar fn sq) [0..(i-1)]
-    where i = (0x1 `shiftL` countOnes (fn sq))
+    where i = 0x1 `shiftL` countOnes (fn sq)
 
 prOccVar :: [BoardMask -> BoardMask] -> (Square -> BoardMask) -> Square -> Int -> BoardMask
 prOccVar extenders fn sq i = foldl1 (.|.) $ map prFind extenders
@@ -210,7 +210,7 @@ prOccVar extenders fn sq i = foldl1 (.|.) $ map prFind extenders
                     in y .&!. fn y
 
 prOccVars extenders fn sq = map (prOccVar extenders fn sq) [0..(i-1)]
-    where i = (0x1 `shiftL` countOnes (fn sq))
+    where i = 0x1 `shiftL` countOnes (fn sq)
 
 rookOccVars     = occVars rookOccupancyMask
 bishopOccVars   = occVars bishopOccupancyMask
