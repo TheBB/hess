@@ -1,11 +1,14 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TupleSections #-}
 
 module BitBoard where
 
 import Data.Bits (Bits, (.&.), (.|.), shiftL, shiftR, testBit, complement)
+import Data.Hashable (Hashable)
+import qualified Data.HashMap.Strict as M
 import Data.List (intercalate, intersperse, nub)
 import Data.List.Split (chunksOf)
-import qualified Data.Vector as V
+import Data.Maybe (fromJust)
 import Data.Word (Word8, Word64)
 import System.Random (Random, randomRIO)
 
@@ -13,7 +16,7 @@ a .&!. b = a .&. complement b
 
 -- {{{ BoardMask definition
 newtype BoardMask = BoardMask Word64
-    deriving (Bits, Eq, Num, Real, Enum, Ord, Integral, Random)
+    deriving (Bits, Eq, Num, Real, Enum, Ord, Integral, Random, Hashable)
 
 bitList :: Bits a => a -> [Bool]
 bitList mask = [testBit mask n | n <- [63,62..0]]
@@ -42,7 +45,6 @@ fileE = BoardMask 0x0808080808080808
 fileF = BoardMask 0x0404040404040404
 fileG = BoardMask 0x0202020202020202
 fileH = BoardMask 0x0101010101010101
-file = (V.fromList [fileA, fileB, fileC, fileD, fileE, fileF, fileG, fileH] V.!)
 
 rank1 = BoardMask 0x00000000000000ff
 rank2 = BoardMask 0x000000000000ff00
@@ -52,7 +54,6 @@ rank5 = BoardMask 0x000000ff00000000
 rank6 = BoardMask 0x0000ff0000000000
 rank7 = BoardMask 0x00ff000000000000
 rank8 = BoardMask 0xff00000000000000
-rank = (V.fromList [rank1, rank2, rank3, rank4, rank5, rank6, rank7, rank8] V.!)
 
 emptyBoard = 0x0 :: BoardMask
 fullBoard = 0xffffffffffffffff :: BoardMask
@@ -60,7 +61,7 @@ fullBoard = 0xffffffffffffffff :: BoardMask
 
 -- {{{ Square definition
 newtype Square = Square Int
-    deriving (Eq, Num, Ord, Enum)
+    deriving (Eq, Num, Ord, Enum, Hashable)
 
 instance Show Square where
     show (Square sq) = ["hgfedcba" !! (sq `mod` 8), "12345678" !! (sq `div` 8)]
@@ -80,26 +81,24 @@ shiftSE = (.&!. rank8) . (.&!. fileA) . (`shiftR` 9)
 shiftSW = (.&!. rank8) . (.&!. fileH) . (`shiftR` 7)
 shifters = [shiftW, shiftE, shiftN, shiftS, shiftNW, shiftNE, shiftSW, shiftSE]
 
-extender shifter = go 7
+makeExtender shifter = go 7
     where 
         go 0 bm = 0
         go n bm = let y = shifter bm 
                   in y .|. go (n-1) y
-extenders@[extendW, extendE, extendN, extendS, extendNW, extendNE, extendSW, extendSE] = map extender shifters
-orthExtenders = [extendW, extendE, extendN, extendS]
-orthShifters = [shiftW, shiftE, shiftN, shiftS]
+extenders@[extendW, extendE, extendN, extendS, extendNW, extendNE, extendSW, extendSE] = 
+    map makeExtender shifters
+orthExtenders = [extendW,  extendE,  extendN,  extendS]
+orthShifters  = [shiftW,   shiftE,   shiftN,   shiftS]
 diagExtenders = [extendNW, extendNE, extendSW, extendSE]
-diagShifters = [shiftNW, shiftNE, shiftSW, shiftSE]
-
-naiveRookAttacks bm occ = foldr1 (.|.) $ 
-    map (\f -> f bm .&!. f occ) [extendW, extendE, extendN, extendS]
+diagShifters  = [shiftNW,  shiftNE,  shiftSW,  shiftSE]
 -- }}}
 
 -- {{{ Magics
 
 -- {{{ Rook magics
-rookOccupancyMaskVec :: V.Vector BoardMask
-rookOccupancyMaskVec = V.fromList
+rookOccupancyMaskMap :: M.HashMap Square BoardMask
+rookOccupancyMaskMap = M.fromList $ zip [0..]
     [ 0x000101010101017e, 0x000202020202027c, 0x000404040404047a, 0x0008080808080876
     , 0x001010101010106e, 0x002020202020205e, 0x004040404040403e, 0x008080808080807e
     , 0x0001010101017e00, 0x0002020202027c00, 0x0004040404047a00, 0x0008080808087600
@@ -118,10 +117,10 @@ rookOccupancyMaskVec = V.fromList
     , 0x6e10101010101000, 0x5e20202020202000, 0x3e40404040404000, 0x7e80808080808000
     ]
 
-rookMagicShiftVec = V.map ((64-) . countOnes) rookOccupancyMaskVec
+rookMagicShiftMap = M.map ((64-) . countOnes) rookOccupancyMaskMap
 
-rookMagicVec :: V.Vector BoardMask
-rookMagicVec = V.fromList
+rookMagicMap :: M.HashMap Square BoardMask
+rookMagicMap = M.fromList $ zip [0..]
     [ 0xa180022080400230, 0x0040100040022000, 0x0080088020001002, 0x0080080280841000
     , 0x4200042010460008, 0x04800a0003040080, 0x0400110082041008, 0x008000a041000880
     , 0x10138001a080c010, 0x0000804008200480, 0x00010011012000c0, 0x0022004128102200
@@ -140,14 +139,31 @@ rookMagicVec = V.fromList
     , 0x8015001002441801, 0x0801000804000603, 0x0c0900220024a401, 0x0001000200608243
     ]
 
-rookOccupancyMask (Square sq) = rookOccupancyMaskVec V.! sq
-rookMagicShift (Square sq) = rookMagicShiftVec V.! sq
-rookMagic (Square sq) = rookMagicVec V.! sq
+rookAttackMap :: M.HashMap (Square, BoardMask) BoardMask
+rookAttackMap = M.fromList . map compute . concatMap (\sq -> map (sq,) (occVars sq)) $ [0..63]
+    where
+        occVar sq i = foldr (.|.) 0 $
+                      map ((1 `shiftL`) . (whichOnes (rookOccupancyMask sq) !!)) (whichOnes i)
+        occVars sq = map (occVar sq) [0..(numVars sq - 1)]
+        numVars sq = 1 `shiftL` countOnes (rookOccupancyMask sq) :: Int
+        compute (sq,bm) = ((sq, (bm * rookMagic sq) `shiftR` rookMagicShift sq), attackSet sq bm)
+        attackSet sq bm = foldr1 (.|.) . map (\e -> let y = e sqbm in y .&!. e (y .&. bm)) $ orthExtenders
+            where sqbm = sqToMask sq
+
+rookOccupancyMask = fromJust . flip M.lookup rookOccupancyMaskMap
+rookMagicShift    = fromJust . flip M.lookup rookMagicShiftMap
+rookMagic         = fromJust . flip M.lookup rookMagicMap
+
+rookAttack (sq,bm) = fromJust $ M.lookup (sq, ((bm .&. occ) * magic) `shiftR` shift) rookAttackMap
+    where
+        magic = rookMagic sq
+        shift = rookMagicShift sq
+        occ = rookOccupancyMask sq
 -- }}}
 
 -- {{{ Bishop magics
-bishopOccupancyMaskVec :: V.Vector BoardMask
-bishopOccupancyMaskVec = V.fromList
+bishopOccupancyMaskMap :: M.HashMap Square BoardMask
+bishopOccupancyMaskMap = M.fromList $ zip [0..]
     [ 0x0040201008040200, 0x0000402010080400, 0x0000004020100a00, 0x0000000040221400
     , 0x0000000002442800, 0x0000000204085000, 0x0000020408102000, 0x0002040810204000
     , 0x0020100804020000, 0x0040201008040000, 0x00004020100a0000, 0x0000004022140000
@@ -166,10 +182,10 @@ bishopOccupancyMaskVec = V.fromList
     , 0x0028440200000000, 0x0050080402000000, 0x0020100804020000, 0x0040201008040200
     ]
 
-bishopMagicShiftVec = V.map ((64-) . countOnes) bishopOccupancyMaskVec
+bishopMagicShiftMap = M.map ((64-) . countOnes) bishopOccupancyMaskMap
 
-bishopMagicVec :: V.Vector BoardMask
-bishopMagicVec = V.fromList
+bishopMagicMap :: M.HashMap Square BoardMask
+bishopMagicMap = M.fromList $ zip [0..]
     [ 0x2910054208004104, 0x02100630a7020180, 0x5822022042000000, 0x2ca804a100200020
     , 0x0204042200000900, 0x2002121024000002, 0x80404104202000e8, 0x812a020205010840
     , 0x8005181184080048, 0x1001c20208010101, 0x1001080204002100, 0x1810080489021800
@@ -188,49 +204,26 @@ bishopMagicVec = V.fromList
     , 0x0400000260142410, 0x0800633408100500, 0x00002404080a1410, 0x0138200122002900
     ]
 
-bishopOccupancyMask (Square sq) = bishopOccupancyMaskVec V.! sq
-bishopMagicShift (Square sq) = bishopMagicShiftVec V.! sq
-bishopMagic (Square sq) = bishopMagicVec V.! sq
--- }}}
-
--- {{{ Magic testing
-occVar :: (Square -> BoardMask) -> Square -> Int -> BoardMask
-occVar fn sq i = foldl (.|.) 0 $ map ((0x1 `shiftL`) . (whichOnes (fn sq) !!)) (whichOnes i)
-
-occVars :: (Square -> BoardMask) -> Square -> [BoardMask]
-occVars fn sq = map (occVar fn sq) [0..(i-1)]
-    where i = 0x1 `shiftL` countOnes (fn sq)
-
-prOccVar :: [BoardMask -> BoardMask] -> (Square -> BoardMask) -> Square -> Int -> BoardMask
-prOccVar extenders fn sq i = foldl1 (.|.) $ map prFind extenders
+bishopAttackMap :: M.HashMap (Square, BoardMask) BoardMask
+bishopAttackMap = M.fromList . map compute . concatMap (\sq -> map (sq,) (occVars sq)) $ [0..63]
     where
-        var = occVar fn sq i
-        sqrBM = sqToMask sq
-        prFind fn = let y = fn sqrBM .&. var
-                    in y .&!. fn y
+        occVar sq i = foldr (.|.) 0 $ 
+                      map ((1 `shiftL`) . (whichOnes (bishopOccupancyMask sq) !!)) (whichOnes i)
+        occVars sq = map (occVar sq) [0..(numVars sq - 1)]
+        numVars sq = 1 `shiftL` countOnes (bishopOccupancyMask sq) :: Int
+        compute (sq,bm) = ((sq, (bm * bishopMagic sq) `shiftR` bishopMagicShift sq), attackSet sq bm)
+        attackSet sq bm = foldr1 (.|.) . map (\e -> let y = e sqbm in y .&!. e (y .&. bm)) $ diagExtenders
+            where sqbm = sqToMask sq
 
-prOccVars extenders fn sq = map (prOccVar extenders fn sq) [0..(i-1)]
-    where i = 0x1 `shiftL` countOnes (fn sq)
+bishopOccupancyMask = fromJust . flip M.lookup bishopOccupancyMaskMap
+bishopMagicShift    = fromJust . flip M.lookup bishopMagicShiftMap
+bishopMagic         = fromJust . flip M.lookup bishopMagicMap
 
-rookOccVars     = occVars rookOccupancyMask
-bishopOccVars   = occVars bishopOccupancyMask
-prRookOccVars   = prOccVars orthExtenders rookOccupancyMask
-prBishopOccVars = prOccVars diagExtenders bishopOccupancyMask
-
-testRookMagic :: Square -> BoardMask -> Bool
-testRookMagic sq magic = length (nub hashes) == length (nub hashesAndProccs)
+bishopAttack (sq,bm) = fromJust $ M.lookup (sq, ((bm .&. occ) * magic) `shiftR` shift) bishopAttackMap
     where
-        hashes = map ((`shiftR` rookMagicShift sq) . (* magic)) $ rookOccVars sq
-        hashesAndProccs = zip hashes $ prRookOccVars sq
-
-testBishopMagic :: Square -> BoardMask -> Bool
-testBishopMagic sq magic = length (nub hashes) == length (nub hashesAndProccs)
-    where
-        hashes = map ((`shiftR` bishopMagicShift sq) . (* magic)) $ bishopOccVars sq
-        hashesAndProccs = zip hashes $ prBishopOccVars sq
-
-rookMagicOK = all (\sq -> testRookMagic sq (rookMagic sq)) [0..63]
-bishopMagicOK = all (\sq -> testBishopMagic sq (bishopMagic sq)) [0..63]
+        magic = bishopMagic sq
+        shift = bishopMagicShift sq
+        occ = bishopOccupancyMask sq
 -- }}}
 
 -- }}}
