@@ -1,4 +1,4 @@
-import BitBoard
+import PreBitBoard
 import Data.Bits ((.&.), (.|.), shiftL, shiftR)
 import Data.List (nub)
 
