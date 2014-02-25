@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TupleSections #-}
 
-module BitBoard where
+module PreBitBoard where
 
 import Data.Bits (Bits, (.&.), (.|.), shiftL, shiftR, testBit, complement)
 import Data.Hashable (Hashable)
