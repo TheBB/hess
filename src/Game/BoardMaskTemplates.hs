@@ -1,4 +1,4 @@
-module BitBoardTemplates 
+module BoardMaskTemplates 
     ( manyIntDecs
     ) where
 

@@ -7,7 +7,7 @@ import qualified Data.Vector.Generic as GV (Vector)
 import qualified Data.Vector as BV
 import qualified Data.Vector.Unboxed as UV
 import qualified MagicTemplates as MT
-import BitBoard
+import BoardMask
 
 occMasksR = UV.fromList MT.occMasksR
 magicsR =   UV.fromList MT.magicsR

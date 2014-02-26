@@ -12,7 +12,7 @@ module MagicTemplates
 import Data.Bits ((.|.), (.&.), shiftL, shiftR)
 import Data.List (sortBy)
 import Language.Haskell.TH
-import BitBoard
+import BoardMask
 
 -- {{{ Occupancy masks and magic numbers
 
