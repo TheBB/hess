@@ -1,4 +1,4 @@
-module MagicTemplates
+module Game.MagicTemplates
     ( occMasksR
     , magicsR
     , shiftsR
@@ -12,7 +12,7 @@ module MagicTemplates
 import Data.Bits ((.|.), (.&.), shiftL, shiftR)
 import Data.List (sortBy)
 import Language.Haskell.TH
-import BoardMask
+import Game.BoardMask
 
 -- {{{ Occupancy masks and magic numbers
 
@@ -102,7 +102,7 @@ shiftsB = map ((64-) . countOnes) occMasksB
 -- {{{ Bishops and rooks 
 
 data Piece = Bishop | Rook
-    deriving (Show)
+    deriving (Eq, Show)
 
 occMask Rook (Square sq) = occMasksR !! sq
 occMask Bishop (Square sq) = occMasksB !! sq

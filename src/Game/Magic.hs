@@ -1,13 +1,16 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Magic where
+module Game.Magic 
+    ( attacksR
+    , attacksB
+    ) where
 
 import Data.Bits ((.&.), shiftR)
 import qualified Data.Vector.Generic as GV (Vector)
 import qualified Data.Vector as BV
 import qualified Data.Vector.Unboxed as UV
-import qualified MagicTemplates as MT
-import BoardMask
+import qualified Game.MagicTemplates as MT
+import Game.BoardMask
 
 occMasksR = UV.fromList MT.occMasksR
 magicsR =   UV.fromList MT.magicsR

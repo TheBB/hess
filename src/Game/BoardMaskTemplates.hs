@@ -1,4 +1,4 @@
-module BoardMaskTemplates 
+module Game.BoardMaskTemplates 
     ( manyIntDecs
     ) where
 
