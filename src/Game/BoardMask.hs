@@ -16,11 +16,14 @@ module Game.BoardMask
     , fileA,fileB,fileC,fileD,fileE,fileF,fileG,fileH
     , sqToMask
     , sqsToMask
+    , maskToSqs
+    , strToSq
     , BoardMask (BoardMask)
     , Square (Square)
     ) where
 
 import Data.Bits (Bits, (.&.), (.|.), shiftL, shiftR, testBit, complement)
+import Data.Char (ord)
 import Data.List (intercalate, intersperse)
 import Data.List.Split (chunksOf)
 import qualified Data.Vector.Generic as GV
@@ -111,6 +114,9 @@ newtype Square = Square Int
 
 instance Show Square where
     show (Square sq) = ["hgfedcba" !! (sq `mod` 8), "12345678" !! (sq `div` 8)]
+
+strToSq :: String -> Square
+strToSq (file:rank:[]) = Square $ 8 * (ord rank - ord '1') - ord file + ord 'h'
 
 sqToMask :: Square -> BoardMask
 sqToMask (Square sq) = 0x01 `shiftL` sq
