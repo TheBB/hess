@@ -26,6 +26,7 @@ import Data.Bits (Bits, (.&.), (.|.), shiftL, shiftR, testBit, complement)
 import Data.Char (ord)
 import Data.List (intercalate, intersperse)
 import Data.List.Split (chunksOf)
+import Data.Maybe (fromJust, isJust)
 import qualified Data.Vector.Generic as GV
     (Vector, basicLength, basicUnsafeSlice, basicUnsafeIndexM, basicUnsafeFreeze, basicUnsafeThaw)
 import qualified Data.Vector.Generic.Mutable as GMV
@@ -115,8 +116,17 @@ newtype Square = Square Int
 instance Show Square where
     show (Square sq) = ["hgfedcba" !! (sq `mod` 8), "12345678" !! (sq `div` 8)]
 
-strToSq :: String -> Square
-strToSq (file:rank:[]) = Square $ 8 * (ord rank - ord '1') - ord file + ord 'h'
+strToSq :: String -> Maybe Square
+strToSq (file:rank:[])
+    | file >= 'a' && file <= 'h' && rank >= '1' && rank <= '8' = Just $ Square num
+    where num = 8 * (ord rank - ord '1') - ord file + ord 'h'
+strToSq _ = Nothing
+
+unsafeStrToSq :: String -> Square
+unsafeStrToSq s
+    | isJust safe = fromJust safe
+    | otherwise = error $ "Invalid square: '" ++ s ++ "'"
+    where safe = strToSq s
 
 sqToMask :: Square -> BoardMask
 sqToMask (Square sq) = 0x01 `shiftL` sq

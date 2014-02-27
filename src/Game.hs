@@ -1,13 +1,20 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Game where
 
 import Data.Bits ((.|.), shiftL)
 import Data.Char (isNumber, ord)
 import Data.List (intercalate, intersperse)
 import Data.List.Split (chunksOf)
+import Data.Maybe (isJust)
+import qualified Data.Set as S
 import Game.BoardMask
 import Game.Magic
+import GameTemplates
 
 -- {{{ Types and instances
+
+-- {{{ Player
 
 data Player = White | Black
     deriving (Eq)
@@ -20,8 +27,12 @@ instance Read Player where
     readsPrec _ ('w':xs) = [(White, xs)]
     readsPrec _ ('b':xs) = [(Black, xs)]
 
-data Castle = WKing | WQueen | BKing | BQueen
-    deriving (Eq)
+-- }}}
+
+-- {{{ Castle, Castles
+
+data Castle = BQueen | BKing | WQueen | WKing
+    deriving (Eq, Ord)
 
 instance Show Castle where
     show WKing = "K"
@@ -35,8 +46,18 @@ instance Read Castle where
     readsPrec _ ('k':xs) = [(BKing, xs)]
     readsPrec _ ('q':xs) = [(BQueen, xs)]
 
+type Castles = S.Set Castle
+
+-- }}}
+
+-- {{{ Move
+
 data Move = NrmMove Square Square | CstMove Castle
     deriving (Eq, Show)
+
+-- }}}
+
+-- {{{ GameState
 
 data GameState = GameState
     { toMove    :: Player
@@ -52,7 +73,7 @@ data GameState = GameState
     , bBishop   :: BoardMask
     , bKnight   :: BoardMask
     , bPawn     :: BoardMask
-    , castles   :: [Castle]
+    , castles   :: Castles
     , enPassant :: Maybe Square
     , drawCount :: Int
     , moveNum   :: Int
@@ -72,16 +93,37 @@ initState = GameState
     , bKnight   = sqsToMask [b8, g8]
     , bRook     = sqsToMask [a8, h8]
     , bPawn     = rank7
-    , castles   = [WKing, WQueen, BKing, BQueen]
+    , castles   = S.fromList [WKing, WQueen, BKing, BQueen]
     , enPassant = Nothing
     , drawCount = 0
     , moveNum   = 1
     }
 
-emptyState = GameState White 0 0 0 0 0 0 0 0 0 0 0 0 [] Nothing 0 1
+emptyState = GameState White 0 0 0 0 0 0 0 0 0 0 0 0 S.empty Nothing 0 1
+
+$(makeUpdaters [ "wKing", "wQueen", "wRook", "wBishop", "wKnight", "wPawn"
+               , "bKing", "bQueen", "bRook", "bBishop", "bKnight", "bPawn"
+               ])
 
 -- The colors are inverted since the developer is using a dark terminal
 -- This is not an end-user function anyway
+pcsMap = [ (wKing,    updwKing,    '\9818',  'K')
+         , (wQueen,   updwQueen,   '\9819',  'Q')
+         , (wRook,    updwRook,    '\9820',  'R')
+         , (wBishop,  updwBishop,  '\9821',  'B')
+         , (wKnight,  updwKnight,  '\9822',  'N')
+         , (wPawn,    updwPawn,    '\9823',  'P')
+         , (bKing,    updbKing,    '\9812',  'k')
+         , (bQueen,   updbQueen,   '\9813',  'q')
+         , (bRook,    updbRook,    '\9814',  'r')
+         , (bBishop,  updbBishop,  '\9815',  'b')
+         , (bKnight,  updbKnight,  '\9816',  'n')
+         , (bPawn,    updbPawn,    '\9817',  'p')
+         ]
+
+unicodePcsMap = map (\(a,_,b,_) -> (a,b)) pcsMap
+fenPcsMap     = map (\(a,_,_,b) -> (a,b)) pcsMap
+
 instance Show GameState where
     show gs = (++ "\n" ++ miniFEN gs)
             . ('\n':)
@@ -90,14 +132,11 @@ instance Show GameState where
             . chunksOf 8 
             $ pcs
         where
-            pcs = foldr1 (zipWith max) $ map (\(f,c) -> map (iff c '\183') (bitList (f gs)))
-                [ (wKing, '\9818'),   (wQueen, '\9819'),  (wRook, '\9820')
-                , (wBishop, '\9821'), (wKnight, '\9822'), (wPawn, '\9823')
-                , (bKing, '\9812'),   (bQueen, '\9813'),  (bRook, '\9814')
-                , (bBishop, '\9815'), (bKnight, '\9816'), (bPawn, '\9817')
-                ]
+            pcs = foldr1 (zipWith max) $ map (\(f,c) -> map (iff c '\183') (bitList (f gs))) unicodePcsMap
             iff a b True = a
             iff a b False = b
+
+-- }}}
 
 -- }}}
 
@@ -117,14 +156,18 @@ myOrOp wf bf gs = if toMove gs == White then wf gs else bf gs
 myPcs = myOrOp wPcs bPcs
 opPcs = myOrOp bPcs wPcs
 
+-- {{{ FEN functions
+
+miniFEN :: GameState -> String
 miniFEN gs = intercalate " "
     [ show (toMove gs)
-    , concatMap show (castles gs)
+    , S.foldr (\c s -> s ++ show c) "" (castles gs)
     , maybe "-" show (enPassant gs)
     , show (drawCount gs)
     , show (moveNum gs)
     ]
 
+toFEN :: GameState -> String
 toFEN gs = boardString gs ++ " " ++ miniFEN gs
     where 
         boardString gs = intercalate "/"
@@ -132,12 +175,8 @@ toFEN gs = boardString gs ++ " " ++ miniFEN gs
                        . chunksOf 8
                        . foldr1 (zipWith max) 
                        . map (\(f,c) -> map (iff c ' ') (bitList (f gs)))
-                       $ [ (wKing, 'K'), (wQueen, 'Q'), (wRook, 'R')
-                         , (wBishop, 'B'), (wKnight, 'N'), (wPawn, 'P')
-                         , (bKing, 'k'), (bQueen, 'q'), (bRook, 'r')
-                         , (bBishop, 'b'), (bKnight, 'n'), (bPawn, 'p')
-                         ]
-          
+                       $ fenPcsMap
+
         compress s@(' ':_) = let (spaces, rest) = span (==' ') s in show (length spaces) ++ compress rest
         compress (x:xs) = x : compress xs
         compress [] = []
@@ -145,35 +184,71 @@ toFEN gs = boardString gs ++ " " ++ miniFEN gs
         iff a b True = a
         iff a b False = b
 
-fromFEN fen = setupState { toMove = read moveS
-                         , castles = map (read . (:[])) castlesS
-                         , enPassant = if epS == "-" then Nothing else Just (strToSq epS)
-                         , drawCount = read drawCountS
-                         , moveNum = read moveNumS
-                         }
+-- This FEN parser is relatively permissive
+-- The board state must come first, and ranks must be separated by forward slashes
+-- Any character not in KQRBNPkqrbnp or numeric will be assumed to represent a single empty square
+-- It is not required to fill out a rank, thus for example // will denote an empty rank
+-- The other entries can come in any order, except for the numeric entries:
+-- A numeric entry at the end is assumed to denote move number, any other should be the draw counter
+-- Except for the board state, fields can be repeated, in which case later occurences will count
+fromFEN :: String -> Maybe GameState
+fromFEN fen = modify setupState rest
     where
-        [boardS, moveS, castlesS, epS, drawCountS, moveNumS] = words fen
-        setupState = acc 63 emptyState boardS
+        boardString:rest = words fen
+        setupState = acc 63 emptyState boardString
 
+        -- acc forms the actual board state
         acc n gs _
             | n < 0 = gs
         acc _ gs [] = gs
+
+        -- after a forward slash, step to the next rank as measured by mod 8
         acc n gs ('/':xs) = acc (n - n `mod` 8 - 1) gs xs
+
+        -- after a number, step forward that many squares
         acc n gs (x:xs)
             | isNumber x = acc (next n (ord x - ord '0')) gs xs
-        acc n gs ('K':xs) = acc (next n 1) (gs { wKing = wKing gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('k':xs) = acc (next n 1) (gs { bKing = bKing gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('Q':xs) = acc (next n 1) (gs { wQueen = wQueen gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('q':xs) = acc (next n 1) (gs { bQueen = bQueen gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('R':xs) = acc (next n 1) (gs { wRook = wRook gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('r':xs) = acc (next n 1) (gs { bRook = bRook gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('B':xs) = acc (next n 1) (gs { wBishop = wBishop gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('b':xs) = acc (next n 1) (gs { bBishop = bBishop gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('N':xs) = acc (next n 1) (gs { wKnight = wKnight gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('n':xs) = acc (next n 1) (gs { bKnight = bKnight gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('P':xs) = acc (next n 1) (gs { wPawn = wPawn gs .|. (1 `shiftL` n) }) xs
-        acc n gs ('p':xs) = acc (next n 1) (gs { bPawn = bPawn gs .|. (1 `shiftL` n) }) xs
+
+        -- if a piece is encountered, bitwise or into the correct boardmask
+        acc n gs (x:xs)
+            | x `elem` pcsString = acc (next n 1) (updater gs (getter gs .|. (1 `shiftL` n))) xs
+            where (getter, updater, _, _) = head . filter (\(_,_,_,a) -> a == x) $ pcsMap
+
+        -- silently ignore erroneous pieces
         acc n gs (_:xs) = acc (next n 1) gs xs
+
+        -- prevents us from stepping to the next rank unless we encounter a forward slash
         next n step = max (n - step) (n - n `mod` 8)
+
+        pcsString = "KQRBNPkqrbnp"
+
+        -- modify updates the auxiliary information (castling, etc.)
+        modify gs [] = Just gs
+        modify gs ([]:rest) = modify gs rest
+
+        -- player to move
+        modify gs ("w":rest) = modify gs { toMove = White } rest
+        modify gs ("b":rest) = modify gs { toMove = Black } rest
+
+        -- en passant
+        modify gs ("-":rest) = modify gs { enPassant = Nothing } rest
+        modify gs (sqString:rest)
+            | isJust sq = modify gs { enPassant = sq } rest
+            where sq = strToSq sqString
+
+        -- castling
+        modify gs (cs:rest)
+            | all (`elem` "KQkq") cs = modify gs { castles = S.fromList . map (read . (:[])) $ cs } rest
+
+        -- numeric inputs, assume it refers to the draw counter unless it's the final entry
+        modify gs (n:rest)
+            | all isNumber n = case null rest of
+                                   True -> Just gs { moveNum = read n }
+                                   False -> modify gs { drawCount = read n } rest
+
+        -- fail on erroneous data
+        modify _ _ = Nothing
+
+-- }}}
 
 -- }}}
